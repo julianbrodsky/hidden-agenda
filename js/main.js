@@ -1,0 +1,300 @@
+// Wiring. Three screens: pick topics, check the words, print the paper.
+
+import { CONFIG } from './config.js';
+import { generateWords, generateAll } from './api.js';
+import { cleanList } from './words.js';
+import { buildPuzzle, seedFrom } from './grid.js';
+import { renderSheets, fitPreview } from './render.js';
+
+const dom = {
+  apiKey: document.getElementById('api-key'),
+  topics: document.getElementById('topics'),
+  generate: document.getElementById('generate'),
+  skip: document.getElementById('skip'),
+  topicsStatus: document.getElementById('topics-status'),
+  cards: document.getElementById('cards'),
+  build: document.getElementById('build'),
+  sheets: document.getElementById('sheets'),
+  preview: document.getElementById('preview'),
+  sheetCount: document.getElementById('sheet-count'),
+  answerKey: document.getElementById('answer-key'),
+  views: {
+    topics: document.getElementById('view-topics'),
+    words: document.getElementById('view-words'),
+    print: document.getElementById('view-print'),
+  },
+};
+
+const state = {
+  topics: new Array(CONFIG.MAX_TOPICS).fill(''),
+  lists: [],
+  puzzles: [],
+  // Bumped by the shuffle button. Layout is a pure function of the words and
+  // this number, so shuffling is a re-render rather than a separate path.
+  salt: 0,
+};
+
+function show(name) {
+  for (const [key, view] of Object.entries(dom.views)) view.hidden = key !== name;
+  window.scrollTo(0, 0);
+}
+
+function readStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Private windows refuse to store. Losing the key across reloads is a
+    // nuisance, not a failure, so the app carries on without it.
+  }
+}
+
+/* ---------- screen one: topics ---------- */
+
+function buildTopicRows() {
+  const fragment = document.createDocumentFragment();
+  for (let i = 0; i < CONFIG.MAX_TOPICS; i += 1) {
+    const row = document.createElement('li');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = state.topics[i] || '';
+    input.placeholder = i === 0 ? 'Blue-Eyes White Dragon' : '';
+    input.setAttribute('aria-label', `Topic ${i + 1}`);
+    input.addEventListener('input', () => {
+      state.topics[i] = input.value;
+      writeStorage(CONFIG.STORAGE_KEY_TOPICS, state.topics);
+    });
+    row.append(input);
+    fragment.append(row);
+  }
+  dom.topics.replaceChildren(fragment);
+}
+
+function filledTopics() {
+  return state.topics
+    .map((topic, index) => ({ topic: topic.trim(), index }))
+    .filter((entry) => entry.topic.length > 0);
+}
+
+async function onGenerate() {
+  const topics = filledTopics();
+  if (!topics.length) {
+    dom.topicsStatus.textContent = 'Add at least one topic first.';
+    return;
+  }
+  const apiKey = dom.apiKey.value.trim();
+  if (!apiKey) {
+    dom.topicsStatus.textContent = 'Add an API key, or choose "Write my own words".';
+    return;
+  }
+
+  dom.generate.disabled = true;
+  dom.skip.disabled = true;
+
+  state.lists = topics.map(({ topic }) => ({ topic, title: topic, words: [], error: null }));
+
+  let done = 0;
+  const report = () => {
+    dom.topicsStatus.textContent = `Writing word lists: ${done} of ${topics.length} done.`;
+  };
+  report();
+
+  await generateAll(
+    topics.map((entry) => entry.topic),
+    apiKey,
+    (index, result) => {
+      done += 1;
+      if (result.ok) {
+        state.lists[index].title = result.title;
+        state.lists[index].words = cleanList(result.words).words;
+      } else {
+        state.lists[index].error = result.error;
+      }
+      report();
+    },
+  );
+
+  dom.generate.disabled = false;
+  dom.skip.disabled = false;
+
+  const failures = state.lists.filter((list) => list.error).length;
+  dom.topicsStatus.textContent = failures
+    ? `${failures} of ${topics.length} topics failed. You can retry or fill them in by hand.`
+    : '';
+
+  renderCards();
+  show('words');
+}
+
+function onSkip() {
+  const topics = filledTopics();
+  if (!topics.length) {
+    dom.topicsStatus.textContent = 'Add at least one topic first.';
+    return;
+  }
+  state.lists = topics.map(({ topic }) => ({ topic, title: topic, words: [], error: null }));
+  renderCards();
+  show('words');
+}
+
+/* ---------- screen two: the words ---------- */
+
+function describeList(list) {
+  const { words, rejected } = cleanList(list.words);
+  const parts = [`${words.length} of ${CONFIG.WORDS_PER_PUZZLE}`];
+  if (rejected.length) {
+    const shown = rejected.slice(0, 3).map((r) => `${r.word} (${r.reason})`);
+    parts.push(`skipping ${shown.join(', ')}${rejected.length > 3 ? ', and more' : ''}`);
+  }
+  return parts.join(', ');
+}
+
+function renderCards() {
+  const fragment = document.createDocumentFragment();
+
+  state.lists.forEach((list, index) => {
+    const card = document.createElement('article');
+    card.className = 'card';
+
+    const title = document.createElement('input');
+    title.type = 'text';
+    title.className = 'card-title';
+    title.value = list.title;
+    title.setAttribute('aria-label', `Puzzle title for ${list.topic}`);
+    title.addEventListener('input', () => { list.title = title.value; });
+
+    const area = document.createElement('textarea');
+    area.className = 'card-words';
+    // Tall enough to show a whole list without scrolling, since the point of
+    // this screen is reading all twenty at once.
+    area.rows = CONFIG.WORDS_PER_PUZZLE;
+    area.spellcheck = false;
+    area.value = list.words.join('\n');
+    area.placeholder = 'One word per line';
+    area.setAttribute('aria-label', `Words for ${list.topic}`);
+
+    const meta = document.createElement('p');
+    meta.className = 'card-meta';
+
+    const refresh = () => {
+      list.words = area.value.split('\n').map((line) => line.trim()).filter(Boolean);
+      meta.textContent = list.error || describeList(list);
+      meta.classList.toggle('is-error', Boolean(list.error));
+    };
+    area.addEventListener('input', () => { list.error = null; refresh(); });
+
+    const again = document.createElement('button');
+    again.type = 'button';
+    again.textContent = 'Ask again';
+    again.addEventListener('click', async () => {
+      const apiKey = dom.apiKey.value.trim();
+      if (!apiKey) { list.error = 'No API key set.'; refresh(); return; }
+      again.disabled = true;
+      meta.textContent = 'Thinking...';
+      meta.classList.remove('is-error');
+      try {
+        const result = await generateWords(list.topic, apiKey);
+        list.title = result.title;
+        list.words = cleanList(result.words).words;
+        list.error = null;
+        title.value = list.title;
+        area.value = list.words.join('\n');
+      } catch (err) {
+        list.error = err.message;
+      }
+      again.disabled = false;
+      refresh();
+    });
+
+    const head = document.createElement('header');
+    head.className = 'card-head';
+    head.append(title, again);
+
+    card.append(head, area, meta);
+    fragment.append(card);
+    refresh();
+  });
+
+  dom.cards.replaceChildren(fragment);
+}
+
+/* ---------- screen three: paper ---------- */
+
+function onBuild() {
+  const puzzles = [];
+  const failures = [];
+
+  state.lists.forEach((list) => {
+    const { words } = cleanList(list.words);
+    if (words.length < 2) {
+      failures.push(list.title || list.topic);
+      return;
+    }
+    const puzzle = buildPuzzle(words, seedFrom(`${list.title}|${words.join()}`) + state.salt);
+    // The list prints in the order it was written, which is the order the model
+    // put the most recognisable words in, not the order they got placed.
+    puzzle.placements.sort((a, b) => words.indexOf(a.word) - words.indexOf(b.word));
+    puzzle.title = list.title || list.topic;
+    puzzles.push(puzzle);
+  });
+
+  if (!puzzles.length) {
+    dom.cards.scrollIntoView();
+    return;
+  }
+
+  state.puzzles = puzzles;
+  show('print');
+  drawSheets();
+
+  if (failures.length) {
+    document.getElementById('print-hint').textContent =
+      `Skipped ${failures.join(', ')}: not enough usable words.`;
+  }
+}
+
+function drawSheets() {
+  const count = renderSheets(dom.sheets, state.puzzles, { answerKey: dom.answerKey.checked });
+  const dropped = state.puzzles.reduce((total, p) => total + p.unplaced.length, 0);
+  dom.sheetCount.textContent =
+    `${state.puzzles.length} puzzles, ${count} ${count === 1 ? 'page' : 'pages'}` +
+    (dropped ? `, ${dropped} words too long to fit` : '');
+  fitPreview(dom.sheets, dom.preview);
+}
+
+/* ---------- start ---------- */
+
+dom.apiKey.value = readStorage(CONFIG.STORAGE_KEY_API, '');
+dom.apiKey.addEventListener('input', () => {
+  writeStorage(CONFIG.STORAGE_KEY_API, dom.apiKey.value.trim());
+});
+
+const savedTopics = readStorage(CONFIG.STORAGE_KEY_TOPICS, null);
+if (Array.isArray(savedTopics)) {
+  savedTopics.slice(0, CONFIG.MAX_TOPICS).forEach((topic, i) => { state.topics[i] = topic; });
+}
+buildTopicRows();
+
+dom.generate.addEventListener('click', onGenerate);
+dom.skip.addEventListener('click', onSkip);
+dom.build.addEventListener('click', onBuild);
+document.getElementById('back-to-topics').addEventListener('click', () => show('topics'));
+document.getElementById('back-to-words').addEventListener('click', () => show('words'));
+document.getElementById('print').addEventListener('click', () => window.print());
+dom.answerKey.addEventListener('change', drawSheets);
+document.getElementById('shuffle').addEventListener('click', () => {
+  state.salt += 1;
+  onBuild();
+});
+
+window.addEventListener('resize', () => {
+  if (!dom.views.print.hidden) fitPreview(dom.sheets, dom.preview);
+});

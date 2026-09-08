@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.anthropic.com; base-uri 'none'; form-action 'none'">
+<title>Hidden Agenda</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%94%8D%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Hidden Agenda</h1>
+  <p class="tagline">Word searches for whatever you are actually into</p>
+</header>
+
+<main>
+
+<!-- Step one: the topics and the key -->
+<section class="view" id="view-topics">
+  <div class="panel">
+    <label class="field" for="api-key">
+      <span class="label">Anthropic API key</span>
+      <input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+    </label>
+    <p class="hint">
+      Stored in this browser only and sent straight to Anthropic. Nothing here has a server.
+      Get one at console.anthropic.com. You can also skip the key and type your own words on the next screen.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>Topics</h2>
+    <p class="hint">
+      One per line, up to ten. Be as specific as you like: a single card, one perfume, an album,
+      a person, a whole genre. Each topic becomes 20 words and one puzzle.
+    </p>
+    <ol class="topics" id="topics"></ol>
+    <div class="actions">
+      <button type="button" class="primary" id="generate">Generate word lists</button>
+      <button type="button" id="skip">Write my own words</button>
+    </div>
+    <p class="status" id="topics-status" role="status"></p>
+  </div>
+</section>
+
+<!-- Step two: check the words before committing them to paper -->
+<section class="view" id="view-words" hidden>
+  <div class="toolbar">
+    <button type="button" id="back-to-topics">Back to topics</button>
+    <span class="spacer"></span>
+    <button type="button" class="primary" id="build">Build the puzzles</button>
+  </div>
+  <p class="hint">
+    Edit anything before it goes to paper. One word per line, letters only, up to 20 per puzzle.
+  </p>
+  <div class="cards" id="cards"></div>
+</section>
+
+<!-- Step three: paper -->
+<section class="view" id="view-print" hidden>
+  <div class="toolbar">
+    <button type="button" id="back-to-words">Back to words</button>
+    <label class="check">
+      <input type="checkbox" id="answer-key">
+      <span>Print answer keys too</span>
+    </label>
+    <button type="button" id="shuffle">Shuffle the grids</button>
+    <span class="spacer"></span>
+    <span class="sheet-count" id="sheet-count"></span>
+    <button type="button" class="primary" id="print">Print</button>
+  </div>
+  <p class="hint" id="print-hint">
+    Print at 100 percent on US Letter, portrait, with margins set to none or minimum.
+    Two puzzles land on every page and the dashed line is where to cut.
+  </p>
+  <div class="preview" id="preview">
+    <div class="sheets-viewport">
+      <div class="sheets" id="sheets"></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
