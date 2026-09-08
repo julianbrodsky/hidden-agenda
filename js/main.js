@@ -264,9 +264,10 @@ function onBuild() {
 function drawSheets() {
   const count = renderSheets(dom.sheets, state.puzzles, { answerKey: dom.answerKey.checked });
   const dropped = state.puzzles.reduce((total, p) => total + p.unplaced.length, 0);
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   dom.sheetCount.textContent =
-    `${state.puzzles.length} puzzles, ${count} ${count === 1 ? 'page' : 'pages'}` +
-    (dropped ? `, ${dropped} words too long to fit` : '');
+    `${plural(state.puzzles.length, 'puzzle')}, ${plural(count, 'page')}` +
+    (dropped ? `, ${plural(dropped, 'word')} too long to fit` : '');
   fitPreview(dom.sheets, dom.preview);
 }
 
