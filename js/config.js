@@ -27,12 +27,12 @@ export const CONFIG = {
   // Print geometry, in inches, for US Letter portrait. Two puzzles per sheet.
   PAGE_WIDTH_IN: 8.5,
   PAGE_HEIGHT_IN: 11,
-  PUZZLE_HEIGHT_IN: 4.9,
-  PAGE_MARGIN_Y_IN: 0.6,
+  PUZZLE_HEIGHT_IN: 4.75,
+  PAGE_MARGIN_Y_IN: 0.5,
   PAGE_MARGIN_X_IN: 0.4,
   // The square the grid is drawn into. Sized so the grid plus a title still
   // clears the half sheet with the margin above.
-  GRID_SIDE_IN: 4.1,
+  GRID_SIDE_IN: 4,
 
   // Ask for more words than the puzzle needs. Cleaning throws some away for
   // length, duplication and containment, and a model that loses four words to

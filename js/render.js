@@ -33,6 +33,13 @@ function renderGrid(puzzle, showAnswers) {
 
 function renderWordList(puzzle) {
   const list = el('ul', 'wordlist');
+
+  // The row count is set here rather than in CSS because it depends on how many
+  // words survived cleaning, and the two printed columns are laid out from it
+  // explicitly. Nothing is left for the browser to balance.
+  const rows = Math.max(1, Math.ceil(puzzle.placements.length / 2));
+  list.style.setProperty('--rows', String(rows));
+
   // Printed in the order the topic gave them, not the order they were placed,
   // so the most recognisable words sit at the top of the first column.
   for (const placement of puzzle.placements) {

@@ -23,16 +23,17 @@
   --page-w: 8.5in;
   --page-h: 11in;
 
-  /* The margin is deliberately larger than any printer needs. A browser that
-     enforces its own minimum margin will not then overflow the page, which is
-     what slices a puzzle in half across two sheets. */
-  --page-margin-y: 0.6in;
+  /* The margin is deliberately larger than any printer needs, so a browser that
+     enforces its own minimum does not then overflow the page. */
+  --page-margin-y: 0.5in;
   --page-margin-x: 0.4in;
 
-  /* Two of these exactly fill 11in less the vertical margins, so the cut line
-     lands on the middle of the paper. */
-  --puzzle-h: 4.9in;
-  --grid-side: 4.1in;
+  /* Two of these come to 9.5in inside a 10in box. That half inch of slack is
+     the point: the previous version filled the box exactly, and a browser whose
+     printable area was a shade shorter than advertised had nowhere to put the
+     overflow but the floor. */
+  --puzzle-h: 4.75in;
+  --grid-side: 4in;
 
   --preview-scale: 1;
 }
@@ -346,15 +347,32 @@ button.primary {
   flex: none;
   width: 2.9in;
   height: var(--grid-side);
-  columns: 2;
+
+  /* Two columns of a known row count, filled downwards and then across.
+     CSS multi-column is the obvious tool for this and was the one part of the
+     layout Safari refused to print: it laid out the first column and dropped
+     the second on the floor. Grid asks the browser to balance nothing, so
+     there is no algorithm left to disagree about. --rows is set per list in
+     js/render.js, because only the renderer knows how many words there are. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(var(--rows), 1fr);
+  grid-auto-flow: column;
   column-gap: 0.2in;
-  column-fill: balance;
+
   font-size: 11pt;
-  line-height: 2.35;
+  line-height: 1.2;
   letter-spacing: 0.02em;
 }
 
-.wordlist li { break-inside: avoid; }
+/* Centred in its row rather than sitting on a baseline, so the two columns line
+   up with each other whatever the row height works out to be. */
+.wordlist li {
+  display: flex;
+  align-items: center;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
 
 .puzzle.is-blank { border-top: 1px dashed #b3b3b3; }
 
@@ -373,7 +391,7 @@ button.primary {
      properties inside @page are not reliable across browsers and this is the
      one rule that cannot be allowed to silently fail. Keep these two numbers
      equal to --page-margin-y and --page-margin-x. */
-  margin: 0.6in 0.4in;
+  margin: 0.5in 0.4in;
 }
 
 @media print {
