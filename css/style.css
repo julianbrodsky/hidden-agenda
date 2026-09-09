@@ -22,9 +22,17 @@
      in the README, and neither is derived from the other at runtime. */
   --page-w: 8.5in;
   --page-h: 11in;
-  --puzzle-h: 5.5in;
-  --puzzle-margin: 0.4in;
-  --grid-side: 4.25in;
+
+  /* The margin is deliberately larger than any printer needs. A browser that
+     enforces its own minimum margin will not then overflow the page, which is
+     what slices a puzzle in half across two sheets. */
+  --page-margin-y: 0.6in;
+  --page-margin-x: 0.4in;
+
+  /* Two of these exactly fill 11in less the vertical margins, so the cut line
+     lands on the middle of the paper. */
+  --puzzle-h: 4.9in;
+  --grid-side: 4.1in;
 
   --preview-scale: 1;
 }
@@ -238,23 +246,34 @@ button.primary {
 .sheet {
   width: var(--page-w);
   height: var(--page-h);
+  /* On screen the margin is drawn as padding so the preview looks like paper.
+     In print it comes from @page instead and this padding is removed, which
+     leaves the inner geometry identical either way. */
+  padding: var(--page-margin-y) var(--page-margin-x);
   background: #fff;
   color: #000;
   margin: 0 0 20px;
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.13);
-  overflow: hidden;
 }
 
 .puzzle {
   height: var(--puzzle-h);
-  padding: var(--puzzle-margin);
   display: flex;
   flex-direction: column;
+  /* The rule that turns the worst failure into a mild one. If the printable
+     area turns out shorter than expected, a puzzle moves to the next page
+     whole rather than being sliced through the middle of the grid. */
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 /* The cut line between the two halves. A solver gets a half sheet, so the
-   scissors need somewhere obvious to go. */
-.puzzle + .puzzle { border-top: 1px dashed #b3b3b3; }
+   scissors need somewhere obvious to go, and the second puzzle needs clearing
+   from it. */
+.puzzle + .puzzle {
+  border-top: 1px dashed #b3b3b3;
+  padding-top: 0.3in;
+}
 
 .puzzle-head {
   display: flex;
@@ -344,9 +363,17 @@ button.primary {
    they were laid out at.
    --------------------------------------------------------------------------- */
 
+/* The margin lives here rather than in the page content, so the sheet is laid
+   out against the printable area instead of against the paper. Sizing content
+   to the full 8.5 by 11 only works in a browser that silently shrinks to fit,
+   and not every browser does. */
 @page {
   size: letter portrait;
-  margin: 0;
+  /* Written out rather than using the variables above, because custom
+     properties inside @page are not reliable across browsers and this is the
+     one rule that cannot be allowed to silently fail. Keep these two numbers
+     equal to --page-margin-y and --page-margin-x. */
+  margin: 0.6in 0.4in;
 }
 
 @media print {
@@ -374,13 +401,22 @@ button.primary {
     width: auto;
   }
 
+  /* Width and height both give way to the page box. Anything fixed here is a
+     promise about the paper that the browser is free to break. */
   .sheet {
+    width: auto;
+    height: auto;
+    padding: 0;
     margin: 0;
     box-shadow: none;
     break-after: page;
+    page-break-after: always;
   }
 
-  .sheet:last-child { break-after: auto; }
+  .sheet:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
 }
 
 /* JS toggles the hidden attribute to switch screens, and a display rule in an

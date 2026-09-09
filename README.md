@@ -69,9 +69,17 @@ point is identical.
 
 ## Printing
 
-Print at 100 percent on US Letter, portrait, with margins set to none or
-minimum. The layout is measured in inches and the preview is the same size as
-the paper, so what you see is what comes out.
+US Letter, portrait, scale 100 percent, margins left on Default. The layout is
+measured in inches and the preview is the same size as the paper, so what you
+see is what comes out.
+
+The sheet is laid out against the printable area rather than against the paper:
+the page carries its own 0.6 by 0.4 inch margin and the content is sized to fit
+inside it. Sizing content to the full 8.5 by 11 only works in a browser that
+silently shrinks to fit, and Safari does not, which is how a puzzle ends up
+sliced across two sheets. Each puzzle also carries `break-inside: avoid`, so if
+the printable area does turn out shorter than expected the puzzle moves to the
+next page whole instead of being cut through the middle of the grid.
 
 Optionally print answer keys, which come out as a second run of sheets with the
 answers ringed. Rings rather than shading, so they survive a black and white
