@@ -84,6 +84,14 @@ main {
 }
 
 .field { display: block; }
+.field + .field { margin-top: 12px; }
+
+/* The connection fields a provider does not use are hidden rather than
+   disabled, because an empty box for a key that is never sent is worse than
+   no box at all. */
+.settings { margin-top: 14px; }
+
+select { appearance: auto; }
 
 .label {
   display: block;
@@ -97,6 +105,7 @@ main {
 
 input[type='text'],
 input[type='password'],
+select,
 textarea {
   width: 100%;
   font: inherit;

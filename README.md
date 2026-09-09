@@ -13,13 +13,59 @@ particular card, one perfume, one album, one episode, one person.
 
 Open `index.html`. There is no build step, no dependencies, and no server.
 
-Word generation needs an Anthropic API key from
-[console.anthropic.com](https://console.anthropic.com). It is kept in this
-browser's local storage and sent directly to Anthropic, because there is no
-back end here to send it anywhere else. A run of ten topics costs a few cents.
+Then pick where the words come from. All three options talk straight from the
+page to the address you give them, and whatever you type stays in this
+browser's local storage.
 
-You can also skip the key entirely, press **Write my own words**, and type the
-lists by hand. Everything after that point is identical.
+### Claude (Anthropic)
+
+Needs a key from [console.anthropic.com](https://console.anthropic.com). Paid,
+a few cents for ten puzzles, and clearly the best of the three on the narrow
+topics this thing exists for.
+
+### Local model (Ollama)
+
+No key, no account, no bill. Install [Ollama](https://ollama.com), pull a
+model, and the app will list whatever you have installed:
+
+```
+ollama pull qwen3:8b
+```
+
+Serve this page from `localhost` too and it works with no further setup:
+
+```
+python3 -m http.server 8000
+```
+
+To use it from the GitHub Pages copy instead, Ollama has to be told that origin
+is allowed, or it will refuse the request:
+
+```
+OLLAMA_ORIGINS=https://julianbrodsky.github.io ollama serve
+```
+
+The honest caveat: an 8B model knows the broad topics and gets vague on the
+narrow ones. Ask it for "1990s Nickelodeon" and it does fine. Ask it for one
+specific fragrance and it will confidently invent notes. Check the words on the
+review screen before you print, which is what that screen is for.
+
+### OpenAI-compatible API
+
+For anything that speaks `/v1/chat/completions`: Groq, OpenRouter, Together and
+DeepInfra all run open weight models and all have free tiers, and LM Studio,
+llama.cpp and vLLM all serve this shape locally. Enter the base URL, the model
+name, and a key if the host wants one. Hosted open models are the middle
+ground: still free, and much better on narrow topics than anything that fits on
+a laptop.
+
+Adding a host that is not in the list means adding it to `connect-src` in
+`index.html` as well, or the browser will block the call.
+
+### No model at all
+
+Press **Write my own words** and type the lists by hand. Everything after that
+point is identical.
 
 ## Printing
 
@@ -35,8 +81,19 @@ laser printer.
 
 - `js/config.js` holds every number in the project: word counts, grid sizes,
   page geometry, the model. Nothing else hard codes a limit.
-- `js/api.js` is the only network call. One request per topic, three at a time,
-  with a JSON schema so the answer cannot come back as prose.
+- `js/providers.js` holds the three ways to get a word list behind one shape,
+  so `js/api.js` does not know which one is selected. Each asks for a JSON
+  schema in whatever dialect that host speaks.
+- `js/api.js` is the only network call. One request per topic, three at a time
+  for a hosted API and one at a time for a local model, since a local model is
+  using the whole machine for each answer.
+- Every provider is asked for 28 words and only the first 20 that survive
+  cleaning get printed. A model that loses four words to the rules should still
+  leave a full puzzle, and that headroom is most of what makes a smaller open
+  weight model usable here.
+- The reply is unwrapped leniently: a markdown fence or a "Here is your list:"
+  preamble is packaging, not a failure, and a good answer should not be thrown
+  away over it.
 - `js/words.js` cleans a list: strips accents and punctuation, enforces length,
   and drops any word that contains another word on the list. That last rule is
   the one that matters. If both `DRAGON` and `REDDRAGON` are on the list, a

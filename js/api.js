@@ -1,63 +1,47 @@
-// The one network call in the app. The key is the user's own, held in their
-// browser, and the request goes straight to Anthropic, so there is no server
-// here to leak it and no server here to run.
+// The network layer. Which model answers is decided in providers.js; this file
+// only knows how to send a request, survive the ways it can fail, and get a
+// title and a word list back out.
 
-import { CONFIG } from './config.js';
+import { providerFor, extractJson } from './providers.js';
 
-const SYSTEM = `You build the word lists behind printed word search puzzles.
-
-You are given one topic and you return exactly ${CONFIG.WORDS_PER_PUZZLE} words that belong to it.
-
-The topic may be enormous ("jazz", "the ocean") or vanishingly specific (one trading card, one fragrance, one episode, one recipe, one person). Specific is the normal case, so treat it as the point rather than a problem: for a single Yu-Gi-Oh card, draw on its name, artwork, attribute, type, stats, effect wording, archetype, and the cards and duels it is known for. For a single fragrance, draw on its notes, accords, bottle, house, perfumer, and the words its fans reach for. Someone who knows the topic should read the finished list and recognise it immediately; someone who does not should learn something from it.
-
-Rules for every word:
-- Letters A to Z only. Strip spaces, hyphens, apostrophes and accents from names before you answer.
-- Between ${CONFIG.MIN_WORD_LENGTH} and ${CONFIG.MAX_WORD_LENGTH} letters after stripping. A long name gets shortened to the part people actually say, not truncated mid-word.
-- No word may contain another word on the list. If you use DRAGON, do not also use REDDRAGON, because a solver who circles part of one has found the other.
-- No two words may be forms of the same word: pick DUEL or DUELIST, not both.
-- Every word is genuinely about this topic. Do not pad the tail of the list with generic filler that would fit any topic in the same category.
-
-Return ${CONFIG.WORDS_PER_PUZZLE} words, uppercase, most recognisable first, plus a short display title for the puzzle: the topic written the way a fan would write it, in normal capitalisation, at most 40 characters.`;
-
-const SCHEMA = {
-  type: 'object',
-  properties: {
-    title: { type: 'string' },
-    words: {
-      type: 'array',
-      items: { type: 'string' },
-      minItems: CONFIG.WORDS_PER_PUZZLE,
-      maxItems: CONFIG.WORDS_PER_PUZZLE,
-    },
-  },
-  required: ['title', 'words'],
-  additionalProperties: false,
-};
-
-export async function generateWords(topic, apiKey, signal) {
-  let response;
+async function post(url, headers, body, signal) {
   try {
-    response = await fetch(CONFIG.API_URL, {
+    return await fetch(url, {
       method: 'POST',
       signal,
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': CONFIG.API_VERSION,
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: CONFIG.MODEL,
-        max_tokens: CONFIG.MAX_TOKENS,
-        system: SYSTEM,
-        messages: [{ role: 'user', content: `Topic: ${topic}` }],
-        output_config: { format: { type: 'json_schema', schema: SCHEMA } },
-      }),
+      headers,
+      body: JSON.stringify(body),
     });
   } catch (err) {
     if (err.name === 'AbortError') throw err;
-    // A blocked fetch and a dead network look identical from here, so say both.
-    throw new Error('Could not reach the Claude API. Check your connection.');
+    // A refused connection, a CORS rejection and a dead network are all the
+    // same opaque TypeError here, so the message has to cover all three.
+    throw new Error(
+      url.includes('localhost') || url.includes('127.0.0.1')
+        ? 'Could not reach the local model. Is the server running on that address?'
+        : 'Could not reach the API. Check the address and your connection.',
+    );
+  }
+}
+
+// Some OpenAI-compatible hosts accept a JSON schema, some accept only
+// json_object, and some accept neither. Rather than make the user find out
+// which, the strict form is tried first and the request steps down on the one
+// error that means "I do not support that".
+function relaxFormat(body) {
+  if (!body.response_format || body.response_format.type === 'json_object') return null;
+  return { ...body, response_format: { type: 'json_object' } };
+}
+
+export async function generateWords(topic, settings, signal) {
+  const provider = providerFor(settings.provider);
+  const { url, headers, body } = provider.request(topic, settings);
+
+  let response = await post(url, headers, body, signal);
+
+  if (response.status === 400) {
+    const relaxed = relaxFormat(body);
+    if (relaxed) response = await post(url, headers, relaxed, signal);
   }
 
   if (!response.ok) {
@@ -65,58 +49,66 @@ export async function generateWords(topic, apiKey, signal) {
     throw new Error(describeFailure(response.status, detail));
   }
 
-  const message = await response.json();
-  if (message.stop_reason === 'refusal') {
-    throw new Error('Claude declined this topic. Try wording it differently.');
+  const payload = await response.json();
+  const text = provider.read(payload);
+  if (!text) throw new Error('The model returned no words for this topic.');
+
+  const parsed = extractJson(text);
+  if (!parsed) {
+    throw new Error('The model did not answer with a word list. Try again, or try another model.');
   }
 
-  const text = (message.content || []).find((block) => block.type === 'text');
-  if (!text) throw new Error('Claude returned no words for this topic.');
+  const words = Array.isArray(parsed.words) ? parsed.words : [];
+  if (!words.length) throw new Error('The model returned an empty list for this topic.');
 
-  // output_config guarantees this parses, but a truncated response would not,
-  // and max_tokens is the one way that happens.
-  let parsed;
-  try {
-    parsed = JSON.parse(text.text);
-  } catch {
-    throw new Error('Claude ran out of room mid answer. Try again.');
-  }
-
-  return { title: String(parsed.title || topic).trim(), words: parsed.words || [] };
+  return { title: String(parsed.title || topic).trim(), words };
 }
 
 function describeFailure(status, detail) {
-  const message = detail && detail.error && detail.error.message;
-  if (status === 401) return 'That API key was rejected. Check it and try again.';
-  if (status === 400 && message) return message;
-  if (status === 429) return 'Rate limited by the API. Wait a moment and retry.';
-  if (status >= 500) return 'The API is having trouble. Try again shortly.';
-  return message || `The API returned ${status}.`;
+  const message =
+    (detail && detail.error && (detail.error.message || detail.error)) ||
+    (detail && detail.message) ||
+    null;
+
+  if (status === 401 || status === 403) return 'That API key was rejected. Check it and try again.';
+  if (status === 404) return 'No model at that address. Check the model name and the base URL.';
+  if (status === 429) return 'Rate limited. Wait a moment and retry.';
+  if (status >= 500) return 'The model server is having trouble. Try again shortly.';
+  return typeof message === 'string' ? message : `The server returned ${status}.`;
+}
+
+// Asks Ollama what is actually installed, so the model box is a list of real
+// choices rather than a name the user has to remember and spell.
+export async function listLocalModels(base) {
+  const url = `${String(base).trim().replace(/\/+$/, '')}/api/tags`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Ollama answered ${response.status}.`);
+  const payload = await response.json();
+  return (payload.models || []).map((entry) => entry.name).sort();
 }
 
 // Runs the topics a few at a time and reports each one the moment it lands, so
-// a slow topic does not hide the nine that already finished.
-export async function generateAll(topics, apiKey, onResult, signal) {
-  const queue = topics.map((topic, index) => ({ topic, index }));
+// a slow topic does not hide the ones that already finished. How many run at
+// once is the provider's call: a hosted API wants several, a local model wants
+// the machine to itself.
+export async function generateAll(topics, settings, onResult, signal) {
+  const provider = providerFor(settings.provider);
+  const lanes = Math.min(provider.concurrency, topics.length);
   let next = 0;
 
   async function worker() {
-    while (next < queue.length) {
-      const job = queue[next];
+    while (next < topics.length) {
+      const index = next;
       next += 1;
       try {
-        const result = await generateWords(job.topic, apiKey, signal);
-        onResult(job.index, { ok: true, ...result });
+        const result = await generateWords(topics[index], settings, signal);
+        onResult(index, { ok: true, ...result });
       } catch (err) {
         if (err.name === 'AbortError') return;
-        onResult(job.index, { ok: false, error: err.message });
+        onResult(index, { ok: false, error: err.message });
       }
     }
   }
 
-  const workers = Array.from(
-    { length: Math.min(CONFIG.CONCURRENCY, queue.length) },
-    () => worker(),
-  );
-  await Promise.all(workers);
+  await Promise.all(Array.from({ length: lanes }, () => worker()));
 }

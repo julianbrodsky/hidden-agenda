@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.anthropic.com; base-uri 'none'; form-action 'none'">
+<!-- connect-src is the list of places a word list may come from. Adding another
+     host means adding it here as well as to js/providers.js; nothing else in
+     the page is allowed to talk to the network at all. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.anthropic.com https://api.groq.com https://openrouter.ai https://api.together.xyz https://api.deepinfra.com http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none'">
 <title>Hidden Agenda</title>
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%94%8D%3C/text%3E%3C/svg%3E">
@@ -20,14 +23,40 @@
 <!-- Step one: the topics and the key -->
 <section class="view" id="view-topics">
   <div class="panel">
-    <label class="field" for="api-key">
-      <span class="label">Anthropic API key</span>
-      <input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+    <label class="field" for="provider">
+      <span class="label">Where the words come from</span>
+      <select id="provider">
+        <option value="anthropic">Claude (Anthropic)</option>
+        <option value="ollama">Local model (Ollama)</option>
+        <option value="openai">OpenAI-compatible API</option>
+      </select>
     </label>
+    <p class="hint" id="provider-note"></p>
+
+    <div class="settings">
+      <label class="field" data-field="base" for="base-url">
+        <span class="label">Base URL</span>
+        <input type="text" id="base-url" autocomplete="off" spellcheck="false">
+      </label>
+
+      <label class="field" data-field="model" for="model">
+        <span class="label">Model</span>
+        <input type="text" id="model" list="model-options" autocomplete="off" spellcheck="false" placeholder="model name">
+        <datalist id="model-options"></datalist>
+      </label>
+
+      <label class="field" data-field="key" for="api-key">
+        <span class="label">API key</span>
+        <input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="paste your key">
+      </label>
+    </div>
+
     <p class="hint">
-      Stored in this browser only and sent straight to Anthropic. Nothing here has a server.
-      Get one at console.anthropic.com. You can also skip the key and type your own words on the next screen.
+      Whatever you enter stays in this browser and is sent only to the address above.
+      Nothing here has a server of its own. You can also skip all of it and type your own
+      words on the next screen.
     </p>
+    <p class="status" id="provider-status" role="status"></p>
   </div>
 
   <div class="panel">

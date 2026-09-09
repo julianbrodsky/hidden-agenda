@@ -1,12 +1,19 @@
 // Wiring. Three screens: pick topics, check the words, print the paper.
 
 import { CONFIG } from './config.js';
-import { generateWords, generateAll } from './api.js';
+import { PROVIDERS, providerFor } from './providers.js';
+import { generateWords, generateAll, listLocalModels } from './api.js';
 import { cleanList } from './words.js';
 import { buildPuzzle, seedFrom } from './grid.js';
 import { renderSheets, fitPreview } from './render.js';
 
 const dom = {
+  provider: document.getElementById('provider'),
+  providerNote: document.getElementById('provider-note'),
+  providerStatus: document.getElementById('provider-status'),
+  baseUrl: document.getElementById('base-url'),
+  model: document.getElementById('model'),
+  modelOptions: document.getElementById('model-options'),
   apiKey: document.getElementById('api-key'),
   topics: document.getElementById('topics'),
   generate: document.getElementById('generate'),
@@ -26,6 +33,12 @@ const dom = {
 };
 
 const state = {
+  // One saved set of connection details per provider, so switching to the local
+  // model and back does not make you retype a key.
+  settings: {
+    provider: 'anthropic',
+    byProvider: {},
+  },
   topics: new Array(CONFIG.MAX_TOPICS).fill(''),
   lists: [],
   puzzles: [],
@@ -54,6 +67,92 @@ function writeStorage(key, value) {
   } catch {
     // Private windows refuse to store. Losing the key across reloads is a
     // nuisance, not a failure, so the app carries on without it.
+  }
+}
+
+/* ---------- provider settings ---------- */
+
+// The connection details for whichever provider is selected, filled in from the
+// provider's own defaults for anything the user has not set.
+function currentSettings() {
+  const id = state.settings.provider;
+  const provider = providerFor(id);
+  const saved = state.settings.byProvider[id] || {};
+  return {
+    provider: id,
+    base: (saved.base || provider.defaultBase).trim(),
+    model: (saved.model || provider.defaultModel).trim(),
+    key: (saved.key || '').trim(),
+  };
+}
+
+function saveSettings() {
+  const id = state.settings.provider;
+  state.settings.byProvider[id] = {
+    base: dom.baseUrl.value,
+    model: dom.model.value,
+    key: dom.apiKey.value,
+  };
+  writeStorage(CONFIG.STORAGE_KEY_SETTINGS, state.settings);
+}
+
+// Says what is missing before a run starts, rather than letting ten topics fail
+// one at a time with the same message.
+function settingsProblem() {
+  const provider = providerFor(state.settings.provider);
+  const settings = currentSettings();
+  if (provider.needsKey && !settings.key) return 'Add an API key, or choose "Write my own words".';
+  if (provider.fields.includes('model') && !settings.model) return 'Pick a model first.';
+  if (provider.fields.includes('base') && !settings.base) return 'Add the base URL of the server.';
+  return null;
+}
+
+function showSettingsFor(id) {
+  const provider = providerFor(id);
+  state.settings.provider = id;
+  dom.provider.value = id;
+  dom.providerNote.textContent = provider.note;
+
+  const saved = state.settings.byProvider[id] || {};
+  dom.baseUrl.value = saved.base !== undefined ? saved.base : provider.defaultBase;
+  dom.model.value = saved.model !== undefined ? saved.model : provider.defaultModel;
+  dom.apiKey.value = saved.key || '';
+
+  for (const field of document.querySelectorAll('.settings [data-field]')) {
+    field.hidden = !provider.fields.includes(field.dataset.field);
+  }
+
+  dom.providerStatus.textContent = '';
+  dom.modelOptions.replaceChildren();
+  if (id === 'ollama') loadLocalModels();
+}
+
+// Ollama can say what it has installed, so the model box becomes a list of real
+// choices. A failure here is not an error worth stopping for: it usually just
+// means the server is not running yet, and the user can still type a name.
+async function loadLocalModels() {
+  dom.providerStatus.textContent = 'Looking for local models...';
+  try {
+    const models = await listLocalModels(currentSettings().base);
+    if (!models.length) {
+      dom.providerStatus.textContent = 'Ollama is running but has no models. Pull one first.';
+      return;
+    }
+    dom.modelOptions.replaceChildren(
+      ...models.map((name) => {
+        const option = document.createElement('option');
+        option.value = name;
+        return option;
+      }),
+    );
+    if (!dom.model.value) {
+      dom.model.value = models[0];
+      saveSettings();
+    }
+    dom.providerStatus.textContent = `Found ${models.length} local ${models.length === 1 ? 'model' : 'models'}.`;
+  } catch {
+    dom.providerStatus.textContent =
+      'No Ollama server at that address yet. Start it, then reselect this option.';
   }
 }
 
@@ -90,11 +189,12 @@ async function onGenerate() {
     dom.topicsStatus.textContent = 'Add at least one topic first.';
     return;
   }
-  const apiKey = dom.apiKey.value.trim();
-  if (!apiKey) {
-    dom.topicsStatus.textContent = 'Add an API key, or choose "Write my own words".';
+  const problem = settingsProblem();
+  if (problem) {
+    dom.topicsStatus.textContent = problem;
     return;
   }
+  const settings = currentSettings();
 
   dom.generate.disabled = true;
   dom.skip.disabled = true;
@@ -109,7 +209,7 @@ async function onGenerate() {
 
   await generateAll(
     topics.map((entry) => entry.topic),
-    apiKey,
+    settings,
     (index, result) => {
       done += 1;
       if (result.ok) {
@@ -195,13 +295,13 @@ function renderCards() {
     again.type = 'button';
     again.textContent = 'Ask again';
     again.addEventListener('click', async () => {
-      const apiKey = dom.apiKey.value.trim();
-      if (!apiKey) { list.error = 'No API key set.'; refresh(); return; }
+      const problem = settingsProblem();
+      if (problem) { list.error = problem; refresh(); return; }
       again.disabled = true;
       meta.textContent = 'Thinking...';
       meta.classList.remove('is-error');
       try {
-        const result = await generateWords(list.topic, apiKey);
+        const result = await generateWords(list.topic, currentSettings());
         list.title = result.title;
         list.words = cleanList(result.words).words;
         list.error = null;
@@ -273,9 +373,20 @@ function drawSheets() {
 
 /* ---------- start ---------- */
 
-dom.apiKey.value = readStorage(CONFIG.STORAGE_KEY_API, '');
-dom.apiKey.addEventListener('input', () => {
-  writeStorage(CONFIG.STORAGE_KEY_API, dom.apiKey.value.trim());
+const savedSettings = readStorage(CONFIG.STORAGE_KEY_SETTINGS, null);
+if (savedSettings && savedSettings.byProvider) {
+  state.settings = savedSettings;
+  if (!PROVIDERS[state.settings.provider]) state.settings.provider = 'anthropic';
+}
+showSettingsFor(state.settings.provider);
+
+dom.provider.addEventListener('change', () => showSettingsFor(dom.provider.value));
+for (const input of [dom.baseUrl, dom.model, dom.apiKey]) {
+  input.addEventListener('input', saveSettings);
+}
+// A corrected address deserves another look for models without a page reload.
+dom.baseUrl.addEventListener('change', () => {
+  if (state.settings.provider === 'ollama') loadLocalModels();
 });
 
 const savedTopics = readStorage(CONFIG.STORAGE_KEY_TOPICS, null);

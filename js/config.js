@@ -33,20 +33,18 @@ export const CONFIG = {
   // clears the half sheet with the margin above.
   GRID_SIDE_IN: 4.25,
 
-  // Claude call. The key never leaves the browser, so this is a direct call and
-  // needs the header that opts into browser origins.
-  API_URL: 'https://api.anthropic.com/v1/messages',
-  API_VERSION: '2023-06-01',
-  MODEL: 'claude-opus-5',
-  // Generous because Opus 5 thinks by default and thinking counts against this
-  // ceiling. Unused headroom costs nothing; hitting the ceiling truncates the
+  // Ask for more words than the puzzle needs. Cleaning throws some away for
+  // length, duplication and containment, and a model that loses four words to
+  // the rules should still leave a full list rather than a short one. This is
+  // what makes a smaller open weight model usable here at all.
+  WORDS_REQUESTED: 28,
+
+  // Generous because a thinking model spends this ceiling on reasoning as well
+  // as output. Unused headroom costs nothing; hitting the ceiling truncates the
   // JSON mid answer and throws the whole topic away.
   MAX_TOKENS: 16000,
-  // Topics run concurrently, but not all ten at once, so a burst of ten does not
-  // trip a rate limit on a small account.
-  CONCURRENCY: 3,
 
-  STORAGE_KEY_API: 'hidden-agenda.api-key',
+  STORAGE_KEY_SETTINGS: 'hidden-agenda.settings',
   STORAGE_KEY_TOPICS: 'hidden-agenda.topics',
 };
 
