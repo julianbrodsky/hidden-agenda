@@ -45,10 +45,19 @@ is allowed, or it will refuse the request:
 OLLAMA_ORIGINS=https://julianbrodsky.github.io ollama serve
 ```
 
-The honest caveat: an 8B model knows the broad topics and gets vague on the
-narrow ones. Ask it for "1990s Nickelodeon" and it does fine. Ask it for one
-specific fragrance and it will confidently invent notes. Check the words on the
-review screen before you print, which is what that screen is for.
+Two things this path needs, both learned the hard way on an M1:
+
+- **Serve the page over http.** Safari refuses to let an https page call
+  http://localhost, so the GitHub Pages copy cannot reach a local model no
+  matter how Ollama is configured. Chrome allows it, which makes this easy to
+  miss. The app now says so instead of blaming the server.
+- **A 4B model is not enough for this.** Measured, not guessed: qwen3:4b with
+  thinking off answered "1990s Nickelodeon" with six real words and then the
+  word "davey" twenty two times. With thinking on it ran for seventeen minutes,
+  filled its whole context deliberating, and returned nothing. Broad topics are
+  where a small local model has a chance; the narrow ones this app exists for
+  are not. Check every word on the review screen, and if the words matter more
+  than the zero cost, use a hosted open weight model instead.
 
 ### OpenAI-compatible API
 
