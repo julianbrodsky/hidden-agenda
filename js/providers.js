@@ -32,7 +32,11 @@ export const SCHEMA = {
     words: {
       type: 'array',
       items: { type: 'string' },
-      minItems: CONFIG.WORDS_REQUESTED,
+      // A ceiling but no floor. The count is asked for in the prompt instead,
+      // because a schema floor cannot make a model know more words, it can only
+      // stop it from finishing, and an unbounded array stops it from finishing
+      // at all: with no maximum, a small model here ran past four thousand
+      // tokens still listing.
       maxItems: CONFIG.WORDS_REQUESTED,
     },
   },
@@ -135,12 +139,32 @@ export const PROVIDERS = {
           // Ollama takes a JSON schema here and constrains decoding to it, which
           // is what keeps a small model from answering in prose.
           format: SCHEMA,
+          // The schema constrains the answer but not the reasoning in front of
+          // it, so a thinking model spends thousands of tokens deliberating
+          // before writing the first word. Measured on an M1: qwen3:4b thought
+          // for over two minutes about 1990s Nickelodeon and had not started.
+          // A word list is recall, not reasoning, and this is the difference
+          // between ten topics being a coffee and being an afternoon.
+          think: false,
+          // A hard ceiling on generation. Twenty eight short words and a title
+          // is a few hundred tokens, so this only ever fires on a model that has
+          // started looping, and it fails the topic instead of hanging the page.
+          options: { num_predict: 1500 },
           messages: [
             { role: 'system', content: SYSTEM },
             { role: 'user', content: `Topic: ${topic}` },
           ],
         },
       };
+    },
+
+    // Models with no thinking to turn off reject the parameter outright, so the
+    // request drops it and tries once more rather than failing.
+    relax(body) {
+      if (!('think' in body)) return null;
+      const next = { ...body };
+      delete next.think;
+      return next;
     },
 
     read(payload) {
@@ -178,6 +202,14 @@ export const PROVIDERS = {
           },
         },
       };
+    },
+
+    // Some hosts take a JSON schema, some take only json_object, and some take
+    // neither. Rather than make the user find out which, the strict form goes
+    // first and the request steps down on the error that means "not supported".
+    relax(body) {
+      if (!body.response_format || body.response_format.type === 'json_object') return null;
+      return { ...body, response_format: { type: 'json_object' } };
     },
 
     read(payload) {

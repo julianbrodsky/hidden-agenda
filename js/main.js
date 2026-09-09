@@ -12,6 +12,7 @@ const dom = {
   providerNote: document.getElementById('provider-note'),
   providerStatus: document.getElementById('provider-status'),
   baseUrl: document.getElementById('base-url'),
+  recheck: document.getElementById('recheck'),
   model: document.getElementById('model'),
   modelOptions: document.getElementById('model-options'),
   apiKey: document.getElementById('api-key'),
@@ -101,10 +102,26 @@ function saveSettings() {
 function settingsProblem() {
   const provider = providerFor(state.settings.provider);
   const settings = currentSettings();
+  const blocked = mixedContentProblem();
+  if (blocked) return blocked;
   if (provider.needsKey && !settings.key) return 'Add an API key, or choose "Write my own words".';
   if (provider.fields.includes('model') && !settings.model) return 'Pick a model first.';
   if (provider.fields.includes('base') && !settings.base) return 'Add the base URL of the server.';
   return null;
+}
+
+// An https page is not allowed to call http://localhost. Chrome makes an
+// exception for loopback and Safari does not, so the request dies inside the
+// browser and the server never hears about it. That looks exactly like a server
+// which is not running, which is the wrong thing to tell somebody whose server
+// is running fine.
+function mixedContentProblem() {
+  const settings = currentSettings();
+  if (window.location.protocol !== 'https:') return null;
+  if (!settings.base.startsWith('http://')) return null;
+  return 'This page is on https and the model is on http, which Safari will not allow. '
+    + 'Serve the page over http instead: run "python3 -m http.server 8000 --bind 127.0.0.1" '
+    + 'in the project folder and open http://localhost:8000.';
 }
 
 function showSettingsFor(id) {
@@ -124,6 +141,9 @@ function showSettingsFor(id) {
 
   dom.providerStatus.textContent = '';
   dom.modelOptions.replaceChildren();
+  // Re-checking used to mean knowing that reselecting the dropdown was what
+  // triggered it, which is not a thing anybody knows.
+  dom.recheck.hidden = id !== 'ollama';
   if (id === 'ollama') loadLocalModels();
 }
 
@@ -151,8 +171,8 @@ async function loadLocalModels() {
     }
     dom.providerStatus.textContent = `Found ${models.length} local ${models.length === 1 ? 'model' : 'models'}.`;
   } catch {
-    dom.providerStatus.textContent =
-      'No Ollama server at that address yet. Start it, then reselect this option.';
+    dom.providerStatus.textContent = mixedContentProblem()
+      || 'No Ollama server at that address. Start it with "ollama serve", then check again.';
   }
 }
 
@@ -388,6 +408,7 @@ for (const input of [dom.baseUrl, dom.model, dom.apiKey]) {
 dom.baseUrl.addEventListener('change', () => {
   if (state.settings.provider === 'ollama') loadLocalModels();
 });
+dom.recheck.addEventListener('click', loadLocalModels);
 
 const savedTopics = readStorage(CONFIG.STORAGE_KEY_TOPICS, null);
 if (Array.isArray(savedTopics)) {

@@ -191,6 +191,8 @@ button.primary {
 
 .sheet-count { font-size: 14px; color: var(--ink-soft); }
 
+#recheck { margin-top: 4px; padding: 6px 12px; font-size: 14px; }
+
 /* ---------- word review cards ---------- */
 
 .cards {

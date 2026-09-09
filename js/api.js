@@ -24,23 +24,16 @@ async function post(url, headers, body, signal) {
   }
 }
 
-// Some OpenAI-compatible hosts accept a JSON schema, some accept only
-// json_object, and some accept neither. Rather than make the user find out
-// which, the strict form is tried first and the request steps down on the one
-// error that means "I do not support that".
-function relaxFormat(body) {
-  if (!body.response_format || body.response_format.type === 'json_object') return null;
-  return { ...body, response_format: { type: 'json_object' } };
-}
-
 export async function generateWords(topic, settings, signal) {
   const provider = providerFor(settings.provider);
   const { url, headers, body } = provider.request(topic, settings);
 
   let response = await post(url, headers, body, signal);
 
-  if (response.status === 400) {
-    const relaxed = relaxFormat(body);
+  // A 400 can mean the host does not support something the request asked for.
+  // Each provider knows which part of its own request is the optional one.
+  if (response.status === 400 && provider.relax) {
+    const relaxed = provider.relax(body);
     if (relaxed) response = await post(url, headers, relaxed, signal);
   }
 
